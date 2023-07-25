@@ -66,7 +66,7 @@ CREATE OR REPLACE VIEW stock_volatility_trend AS (
             AVG(close) OVER (ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS ema_20_periods
         FROM aaplstock.trends.updates
     ),
-    std_dev_data AS (
+    std_dev AS (
         SELECT
             date,
             close,
@@ -83,7 +83,7 @@ CREATE OR REPLACE VIEW stock_volatility_trend AS (
     FROM
         ema_data ed
     JOIN
-        std_dev_data sd ON ed.date = sd.date
+        std_dev sd ON ed.date = sd.date
 );
 ```
 **Output:**
@@ -95,48 +95,57 @@ CREATE OR REPLACE VIEW stock_volatility_trend AS (
 
 **Calculate and view the RSI.**
  ```sql
-CREATE OR REPLACE VIEW RSI_trend AS (
-    WITH price_changes AS (
-        SELECT
-            date,
-            close,
-            LEAD(close) OVER (ORDER BY date) - close AS price_change
-        FROM
-            aaplstock.trends.updates
-    ),
-    gains_losses AS (
-        SELECT
-            date,
-            close,
-            CASE
-                WHEN price_change > 0 THEN price_change
-                ELSE 0
-            END AS gain,
-            CASE
-                WHEN price_change < 0 THEN ABS(price_change)
-                ELSE 0
-            END AS loss
-        FROM
-            price_changes
-    ),
-    average_gains_losses AS (
-        SELECT
-            date,
-            close,
-            AVG(gain) OVER (ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) AS avg_gain,
-            AVG(loss) OVER (ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) AS avg_loss
-        FROM
-            gains_losses
-    )
+
+-- Step 1: Calculate Price Changes --
+WITH price_changes_custom AS (
     SELECT
         date,
         close,
-        100 - (100 / (1 + (avg_gain / avg_loss))) AS rsi_14_days
+        LEAD(close) OVER (ORDER BY date) - close AS price_change
     FROM
-        average_gains_losses
+        aaplstock.trends.updates
+),
+
+-- Step 2: Calculate Gains and Losses --
+gains_losses_custom AS (
+    SELECT
+        date,
+        close,
+        CASE
+            WHEN price_change > 0 THEN price_change
+            ELSE 0
+        END AS gain,
+        CASE
+            WHEN price_change < 0 THEN ABS(price_change)
+            ELSE 0
+        END AS loss
+    FROM
+        price_changes_custom
+),
+
+-- Step 3: Calculate Average Gains and Losses --
+average_gains_losses_custom AS (
+    SELECT
+        date,
+        close,
+        AVG(gain) OVER (ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) AS avg_gain,
+        AVG(loss) OVER (ORDER BY date ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) AS avg_loss
+    FROM
+        gains_losses_custom
+)
+
+-- Step 4: Calculate RSI_trend (RSI) --
+CREATE OR REPLACE VIEW RSI_trend AS (
+    SELECT
+        date,
+        close,
+        100 - (100 / (1 + (avg_gain / avg_loss))) AS rsi
+    FROM
+        average_gains_losses_custom
     WHERE
         avg_loss <> 0
 );
+
 ```
 **Output:**
 
